@@ -1,0 +1,44 @@
+name: Build Android
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack source
+        run: unzip -o -q source.zip -d app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install and sync
+        working-directory: app
+        run: |
+          npm ci
+          npx cap sync android
+      - name: Build release bundle (unsigned) and debug APK
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon bundleRelease assembleDebug
+      - name: Publish build to "builds" branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir out
+          cp app/android/app/build/outputs/bundle/release/app-release.aab out/app-unsigned.aab
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk out/app-debug.apk
+          echo "${{ github.run_number }}" > out/BUILD
+          cd out
+          git init -q -b builds
+          git add .
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "Build ${{ github.run_number }}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" builds
